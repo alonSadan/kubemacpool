@@ -18,7 +18,6 @@ package virtualmachine
 
 import (
 	"context"
-	"fmt"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -114,7 +113,7 @@ func (r *ReconcilePolicy) Reconcile(request reconcile.Request) (reconcile.Result
 			logging.Printf(logging.DebugLevel, "The VM contains the finalizer")
 			// our finalizer is present, so lets handle our external dependency
 			logging.Printf(logging.DebugLevel, "Releasing the mac")
-			err := r.poolManager.ReleaseVirtualMachineMac(fmt.Sprintf("%s/%s", request.Namespace, request.Name))
+			err := r.poolManager.ReleaseVirtualMachineMac(instance)
 			if err != nil {
 				logging.Printf(logging.ErrorLevel, "failed to release mac from VM %s: %v", request.NamespacedName, err)
 			}

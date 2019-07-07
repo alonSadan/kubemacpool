@@ -115,7 +115,14 @@ func (a *virtualMachineAnnotator) mutateUpdateVirtualMachinesFn(ctx context.Cont
 	log.Info("got a update mutate virtual machine event",
 		"virtualMachineName", virtualMachine.Name,
 		"virtualMachineNamespace", virtualMachine.Namespace)
-	return a.poolManager.UpdateMacAddressesForVirtualMachine(virtualMachine)
+	previousVirtualMachine := &kubevirt.VirtualMachine{}
+	err := a.client.Get(context.TODO(), client.ObjectKey{Namespace: previousVirtualMachine.Namespace, Name: previousVirtualMachine.Name}, previousVirtualMachine)
+	if err != nil {
+
+		return err
+	}
+
+	return a.poolManager.UpdateMacAddressesForVirtualMachine(previousVirtualMachine, virtualMachine)
 }
 
 // podAnnotator implements inject.Client.

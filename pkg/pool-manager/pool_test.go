@@ -17,8 +17,9 @@ limitations under the License.
 package pool_manager
 
 import (
-	"k8s.io/apimachinery/pkg/runtime"
 	"net"
+
+	"k8s.io/apimachinery/pkg/runtime"
 
 	. "github.com/onsi/ginkgo"
 	"github.com/onsi/ginkgo/extensions/table"
@@ -194,6 +195,22 @@ var _ = Describe("Pool", func() {
 							Interfaces: []kubevirt.Interface{masqueradeInterface, multusBridgeInterface}}},
 					Networks: []kubevirt.Network{podNetwork, multusNetwork}}}}}
 
+		It("should not return an error if mac addresses is not existing", func() {
+			fakeClient := fake.NewSimpleClientset()
+			startPoolRangeEnv, err := net.ParseMAC("02:00:00:00:00:00")
+			Expect(err).ToNot(HaveOccurred())
+			endPoolRangeEnv, err := net.ParseMAC("02:00:00:00:00:02")
+			Expect(err).ToNot(HaveOccurred())
+			poolManager, err := NewPoolManager(fakeClient, startPoolRangeEnv, endPoolRangeEnv, false)
+			Expect(err).ToNot(HaveOccurred())
+			newVM := sampleVM
+			newVM.Name = "newVM"
+			Expect(len(poolManager.macPoolMap)).To(Equal(0))
+			Expect(newVM.Spec.Template.Spec.Domain.Devices.Interfaces[0].MacAddress).To(BeEmpty())
+			err = poolManager.ReleaseVirtualMachineMac(&newVM)
+			Expect(err).ToNot(HaveOccurred())
+
+		})
 		It("should allocate a new mac and release it for masquerade", func() {
 			fakeClient := fake.NewSimpleClientset(&samplePod)
 			startPoolRangeEnv, err := net.ParseMAC("02:00:00:00:00:00")
@@ -215,12 +232,8 @@ var _ = Describe("Pool", func() {
 			Expect(exist).To(BeTrue())
 
 			Expect(newVM.Spec.Template.Spec.Domain.Devices.Interfaces[0].MacAddress).To(Equal("02:00:00:00:00:01"))
-			macAddress, exist := poolManager.vmToMacPoolMap[vmNamespaced(&newVM)]
-			Expect(exist).To(BeTrue())
-			Expect(len(macAddress)).To(Equal(1))
-			Expect(macAddress["pod"]).To(Equal("02:00:00:00:00:01"))
 
-			err = poolManager.ReleaseVirtualMachineMac(vmNamespaced(&newVM))
+			err = poolManager.ReleaseVirtualMachineMac(&newVM)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(poolManager.macPoolMap)).To(Equal(1))
 			_, exist = poolManager.macPoolMap["02:00:00:00:00:00"]
@@ -267,13 +280,8 @@ var _ = Describe("Pool", func() {
 
 			Expect(newVM.Spec.Template.Spec.Domain.Devices.Interfaces[0].MacAddress).To(Equal("02:00:00:00:00:01"))
 			Expect(newVM.Spec.Template.Spec.Domain.Devices.Interfaces[1].MacAddress).To(Equal("02:00:00:00:00:02"))
-			macAddress, exist := poolManager.vmToMacPoolMap[vmNamespaced(newVM)]
-			Expect(exist).To(BeTrue())
-			Expect(len(macAddress)).To(Equal(2))
-			Expect(macAddress["pod"]).To(Equal("02:00:00:00:00:01"))
-			Expect(macAddress["multus"]).To(Equal("02:00:00:00:00:02"))
 
-			err = poolManager.ReleaseVirtualMachineMac(vmNamespaced(newVM))
+			err = poolManager.ReleaseVirtualMachineMac(newVM)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(poolManager.macPoolMap)).To(Equal(1))
 			_, exist = poolManager.macPoolMap["02:00:00:00:00:00"]
@@ -294,15 +302,13 @@ var _ = Describe("Pool", func() {
 				Expect(err).ToNot(HaveOccurred())
 				newVM := multipleInterfacesVM.DeepCopy()
 				newVM.Name = "newVM"
-
 				err = poolManager.AllocateVirtualMachineMac(newVM)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(newVM.Spec.Template.Spec.Domain.Devices.Interfaces[0].MacAddress).To(Equal("02:00:00:00:00:00"))
 				Expect(newVM.Spec.Template.Spec.Domain.Devices.Interfaces[1].MacAddress).To(Equal("02:00:00:00:00:01"))
-
 				updateVm := multipleInterfacesVM.DeepCopy()
 				updateVm.Name = "newVM"
-				err = poolManager.UpdateMacAddressesForVirtualMachine(updateVm)
+				err = poolManager.UpdateMacAddressesForVirtualMachine(newVM, updateVm)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(updateVm.Spec.Template.Spec.Domain.Devices.Interfaces[0].MacAddress).To(Equal("02:00:00:00:00:00"))
 				Expect(updateVm.Spec.Template.Spec.Domain.Devices.Interfaces[1].MacAddress).To(Equal("02:00:00:00:00:01"))
@@ -326,7 +332,7 @@ var _ = Describe("Pool", func() {
 				updateVm := multipleInterfacesVM.DeepCopy()
 				updateVm.Name = "newVM"
 				updateVm.Spec.Template.Spec.Domain.Devices.Interfaces[1].MacAddress = "01:00:00:00:00:02"
-				err = poolManager.UpdateMacAddressesForVirtualMachine(updateVm)
+				err = poolManager.UpdateMacAddressesForVirtualMachine(newVM, updateVm)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(updateVm.Spec.Template.Spec.Domain.Devices.Interfaces[0].MacAddress).To(Equal("02:00:00:00:00:00"))
 				Expect(updateVm.Spec.Template.Spec.Domain.Devices.Interfaces[1].MacAddress).To(Equal("01:00:00:00:00:02"))
@@ -352,7 +358,7 @@ var _ = Describe("Pool", func() {
 				updatedVM.Spec.Template.Spec.Domain.Devices.Interfaces = append(updatedVM.Spec.Template.Spec.Domain.Devices.Interfaces, anotherMultusBridgeInterface)
 				updatedVM.Spec.Template.Spec.Networks = append(updatedVM.Spec.Template.Spec.Networks, anotherMultusNetwork)
 
-				err = poolManager.UpdateMacAddressesForVirtualMachine(updatedVM)
+				err = poolManager.UpdateMacAddressesForVirtualMachine(newVM, updatedVM)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(updatedVM.Spec.Template.Spec.Domain.Devices.Interfaces[0].MacAddress).To(Equal("02:00:00:00:00:00"))
 				Expect(updatedVM.Spec.Template.Spec.Domain.Devices.Interfaces[1].MacAddress).To(Equal("02:00:00:00:00:01"))
@@ -381,7 +387,7 @@ var _ = Describe("Pool", func() {
 				updatedVM := multipleInterfacesVM.DeepCopy()
 				updatedVM.Name = "newVM"
 
-				err = poolManager.UpdateMacAddressesForVirtualMachine(updatedVM)
+				err = poolManager.UpdateMacAddressesForVirtualMachine(newVM, updatedVM)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(updatedVM.Spec.Template.Spec.Domain.Devices.Interfaces[0].MacAddress).To(Equal("02:00:00:00:00:00"))
 				Expect(updatedVM.Spec.Template.Spec.Domain.Devices.Interfaces[1].MacAddress).To(Equal("02:00:00:00:00:01"))
@@ -404,7 +410,7 @@ var _ = Describe("Pool", func() {
 
 				updatedVM.Spec.Template.Spec.Domain.Devices.Interfaces = append(updatedVM.Spec.Template.Spec.Domain.Devices.Interfaces, anotherMultusBridgeInterface)
 				updatedVM.Spec.Template.Spec.Networks = append(updatedVM.Spec.Template.Spec.Networks, anotherMultusNetwork)
-				err = poolManager.UpdateMacAddressesForVirtualMachine(updatedVM)
+				err = poolManager.UpdateMacAddressesForVirtualMachine(newVM, updatedVM)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(updatedVM.Spec.Template.Spec.Domain.Devices.Interfaces[0].MacAddress).To(Equal("02:00:00:00:00:00"))
 				Expect(updatedVM.Spec.Template.Spec.Domain.Devices.Interfaces[1].MacAddress).To(Equal("02:00:00:00:00:02"))
