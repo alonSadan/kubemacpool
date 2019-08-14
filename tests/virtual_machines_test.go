@@ -421,36 +421,33 @@ var _ = Describe("Virtual Machines", func() {
 				}, 50*time.Second, 5*time.Second).Should(Not(HaveOccurred()), "failed to apply the new vm object error")
 			})
 		})
+		Context("When the leader is changed", func() {
+			It("should be able to create a new virtual machine", func() {
+				err := setRange(rangeStart, rangeEnd)
+				Expect(err).ToNot(HaveOccurred())
 
-		Context("testing finalizers", func() {
-			Context("When the VM is not being deleted", func() {
-				It("should have a finalizer and deletion timestamp should be zero ", func() {
-					err := setRange(rangeStart, rangeEnd)
-					Expect(err).ToNot(HaveOccurred())
+				vm := CreateVmObject(TestNamespace, false, []kubevirtv1.Interface{newInterface("br", "")},
+					[]kubevirtv1.Network{newNetwork("br")})
 
-					vm := CreateVmObject(TestNamespace, false, []kubevirtv1.Interface{newInterface("br", "")},
-						[]kubevirtv1.Network{newNetwork("br")})
-					Eventually(func() error {
-						return testClient.VirtClient.Create(context.TODO(), vm)
+				anotherVm := vm.DeepCopy()
+				anotherVm.Name = "another-vm"
 
-					}, 50*time.Second, 5*time.Second).Should(Not(HaveOccurred()), "failed to apply the new vm object")
+				Eventually(func() error {
+					return testClient.VirtClient.Create(context.TODO(), vm)
 
-					Eventually(func() bool {
+				}, 40*time.Second, 5*time.Second).Should(Not(HaveOccurred()), "failed to apply the new vm object")
+				_, err = net.ParseMAC(vm.Spec.Template.Spec.Domain.Devices.Interfaces[0].MacAddress)
+				Expect(err).ToNot(HaveOccurred())
 
-						err := testClient.VirtClient.Get(context.TODO(), client.ObjectKey{Namespace: vm.Namespace, Name: vm.GetName()}, vm)
-						if err != nil {
-							return false
-						}
-						if vm.ObjectMeta.DeletionTimestamp.IsZero() {
-							if len(vm.ObjectMeta.Finalizers) == 1 {
-								if strings.Compare(vm.ObjectMeta.Finalizers[0], "Finalizer") == 0 {
-									return true
-								}
-							}
-						}
-						return false
-					}, 50*time.Second, 5*time.Second).Should(BeTrue())
-				})
+				By("deleting leader manager")
+				DeleteLeaderManager()
+
+				Eventually(func() error {
+					return testClient.VirtClient.Create(context.TODO(), anotherVm)
+
+				}, 40*time.Second, 5*time.Second).Should(Not(HaveOccurred()), "failed to apply the new vm object")
+				_, err = net.ParseMAC(anotherVm.Spec.Template.Spec.Domain.Devices.Interfaces[0].MacAddress)
+				Expect(err).ToNot(HaveOccurred())
 			})
 		})
 	})
